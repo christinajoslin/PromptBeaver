@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  Build smarter prompts. Learn deeper. 
+  Build better prompts. Unlock deeper learning. 
 </p>
 
 ---
