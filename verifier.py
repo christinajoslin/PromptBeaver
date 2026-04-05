@@ -2,9 +2,11 @@ import json
 import random
 import time
 from typing import Any
-
 import requests
-from cryptography.fernet import Fernet
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 VERIFIER_MODEL = "gpt-oss:120b"
 BACKUP_VERIFIER_MODEL = "llama4:latest"
@@ -13,6 +15,9 @@ BACKUP_BEHAVIOR_PREVIEW_MODEL = "llama4:latest"
 REVISER_MODEL = "gpt-oss:120b"
 BACKUP_REVISER_MODEL = "llama4:latest"
 GENAI_CHAT_COMPLETIONS_URL = "https://genai.rcac.purdue.edu/api/chat/completions"
+GENAI_KEY = os.getenv("GENAI_API_KEY")
+if not GENAI_KEY:
+    raise ValueError("GENAI_API_KEY not found in environment variables.")
 
 VERIFIER_SYSTEM_PROMPT = """
 You are a strict educational prompt quality reviewer.
@@ -28,18 +33,6 @@ Preserve the student's exact question, the selected role, the selected intent, t
 Return ONLY valid JSON that matches the requested schema.
 Do not include markdown fences or extra commentary.
 """.strip()
-
-
-def get_api_key() -> str:
-    with open(".config.dat", "rb") as key_file:
-        key = key_file.read()
-    fernet = Fernet(key)
-    with open("gen_key.enc", "rb") as enc_file:
-        encrypted_api_key = enc_file.read()
-    return fernet.decrypt(encrypted_api_key).decode()
-
-
-GENAI_KEY = get_api_key()
 
 
 def _extract_content(data: dict[str, Any]) -> str:

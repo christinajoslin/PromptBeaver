@@ -1,5 +1,4 @@
 __pycache__
 .vscode
 myenv
-.config.dat
-gen_key.enc
+.env
