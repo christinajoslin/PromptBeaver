@@ -11,6 +11,11 @@ INTERACTION_MODES = {
             "using 'What if?' or similar prompts. If the student is incorrect, ask a "
             "question that helps them recognize the issue on their own."
         ),
+        "setting_expectations": [
+            "Ask exactly one guiding question at a time.",
+            "Do not give a direct explanation or full answer.",
+            "Use hints only to help the student reason for themself.",
+        ],
     },
     "Guided Tutor": {
         "short_description": "Explanations + Guiding Questions",
@@ -24,6 +29,11 @@ INTERACTION_MODES = {
             "needed, but do NOT solve the problem. ALWAYS check for understanding "
             "before introducing the next step."
         ),
+        "setting_expectations": [
+            "Start with a short high-level explanation.",
+            "Then ask one guiding question.",
+            "Support the student step by step without solving the problem for them.",
+        ],
     },
     "Expert Explainer": {
         "short_description": "Explanations only",
@@ -35,6 +45,11 @@ INTERACTION_MODES = {
             "Provide a clear, structured explanation focused only on what is needed "
             "to answer the question. Keep it concise and scannable."
         ),
+        "setting_expectations": [
+            "Provide a direct but concise explanation.",
+            "Stay tightly focused on the asked concept.",
+            "Do not wander into unrelated background or excessive detail.",
+        ],
     },
     "Student Simulator": {
         "short_description": "Clarifying Questions Only",
@@ -47,6 +62,11 @@ INTERACTION_MODES = {
             "Ask ONLY ONE clarifying question at a time and occasionally make a simple "
             "mistake to prompt the user to explain. Do NOT provide explanations."
         ),
+        "setting_expectations": [
+            "Stay in the role of a novice learner.",
+            "Ask one clarifying question at a time.",
+            "Do not give explanations or polished teaching answers.",
+        ],
     },
 }
 
@@ -60,6 +80,21 @@ QUESTION_INTENTS = {
     "Check My Reasoning": (
         "Focuses on validating or correcting the student’s thought process."
     ),
+}
+
+QUESTION_INTENT_EXPECTATIONS = {
+    "Clarify a Concept": [
+        "Prioritize definitions, intuition, and the key idea behind the concept.",
+        "Do not drift into a full worked example unless it directly helps clarify the idea.",
+    ],
+    "Walk Through an Example": [
+        "Anchor the response to the specific example or scenario in the student's question.",
+        "Guide the reasoning step by step rather than jumping to the result.",
+    ],
+    "Check My Reasoning": [
+        "Evaluate the student's logic or intermediate thinking.",
+        "Point out what is correct, what needs adjustment, and why.",
+    ],
 }
 
 SUPPORTING_MATERIALS = {
@@ -77,7 +112,7 @@ SUPPORTING_MATERIALS = {
 }
 
 CONCEPT_MAP = {
-    "Programming and Problem Solving (CS 180)": [
+    "Object-Oriented Programming (CS 180)": [
         "Control Flow",
         "Functions",
         "Recursion",
@@ -107,7 +142,7 @@ CONCEPT_MAP = {
         "Hash Table",
         "Tree",
         "Heap",
-        "Graph Algorithms",
+        "Graphs",
         "Recursion",
         "Sorting",
         "Searching",
@@ -149,17 +184,35 @@ def build_user_prompt(
             "Use the specific vocabulary and pedagogical style found in the uploaded materials."
         )
 
+    mode_expectations = INTERACTION_MODES.get(interaction_mode, {}).get("setting_expectations", [])
+    intent_expectations = QUESTION_INTENT_EXPECTATIONS.get(question_intent, [])
+
     prompt_lines = [
         "You are a Computer Science professor helping an undergraduate student with this question:",
         "",
-        f"\"{question}\"",
+        f'"{question}"',
         "",
         f"Intent: {question_intent}",
         f"Focus: {specific_concept} within {general_concept}",
         f"Your Role: {interaction_mode}",
         "",
+        "Role instructions",
         interaction_mode_description,
+        "",
+        "Selected setting expectations",
+        f"- Interaction mode expectations for {interaction_mode}:",
     ]
+
+    prompt_lines.extend([f"  - {item}" for item in mode_expectations])
+    prompt_lines.append(f"- Question intent expectations for {question_intent}:")
+    prompt_lines.extend([f"  - {item}" for item in intent_expectations])
+    prompt_lines.extend(
+        [
+            "- Concept focus expectations:",
+            f"  - Stay centered on {specific_concept} within {general_concept}.",
+            "  - Address only what is needed for the student's actual question.",
+        ]
+    )
 
     if supplemental_material_prompt:
         prompt_lines.extend(["", supplemental_material_prompt])
@@ -169,13 +222,12 @@ def build_user_prompt(
             "",
             "Rules",
             "",
-            "- DO NOT provide direct answers to homework-style questions (e.g., MCQs).",
+            "- DO NOT provide direct answers to homework-style questions (for example, MCQs or graded work).",
             "- DO NOT debug, modify, or rewrite code.",
-            "- ALWAYS stay focused on the student’s exact question AND intent (do NOT introduce unrelated concepts).",
+            "- ALWAYS stay focused on the student's exact question AND selected intent.",
+            "- Keep the response concise, scannable, and free of unrelated concepts.",
             "",
-            "For the rest of this conversation, you MUST continue following these rules AND this role. "
-            "Keep responses concise and easily scannable for an undergraduate student "
-            "(NO long blocks of text or exhaustive lists).",
+            "For the rest of this conversation, you MUST continue following these rules, this role, and these setting expectations.",
         ]
     )
 
