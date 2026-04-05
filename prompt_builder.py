@@ -1,3 +1,21 @@
+"""
+Utilities for constructing guided tutoring prompts and storing UI-facing
+selection metadata for the tutoring interface.
+
+Author: Christina Joslin
+Date: 4/4/2026
+Purpose:
+    - Centralizes interaction modes, question intents, supporting materials,
+      and concept mappings used by the tutoring app.
+    - Builds a single user prompt that combines the student's question,
+      instructional mode, concept focus, and optional uploaded materials.
+    - Keeps prompt construction logic separate from the Streamlit interface
+      so the app remains easier to maintain.
+"""
+
+# =========================================================
+# Configuration
+# =========================================================
 INTERACTION_MODES = {
     "Socratic Coach": {
         "short_description": "Thought-Provoking Questions only",
@@ -142,7 +160,7 @@ CONCEPT_MAP = {
         "Hash Table",
         "Tree",
         "Heap",
-        "Graphs",
+        "Graph",
         "Recursion",
         "Sorting",
         "Searching",
@@ -159,17 +177,22 @@ CONCEPT_MAP = {
     ],
 }
 
-
+# =========================================================
+# Prompt Builder
+# =========================================================
 def build_user_prompt(
-    question: str,
-    question_intent: str,
-    general_concept: str,
-    specific_concept: str,
-    interaction_mode: str,
-    interaction_mode_description: str,
-    supplemental_material_type: str | None = None,
-    supplemental_material_file_name: str | None = None,
-) -> str:
+    question,
+    question_intent,
+    general_concept,
+    specific_concept,
+    interaction_mode,
+    interaction_mode_description,
+    supplemental_material_type,
+    supplemental_material_file_name,
+):
+    """
+    Builds the final user prompt passed into the tutoring model.
+    """
     supplemental_material_prompt = ""
     supplemental_material_additional_rule = ""
 
@@ -184,7 +207,10 @@ def build_user_prompt(
             "Use the specific vocabulary and pedagogical style found in the uploaded materials."
         )
 
-    mode_expectations = INTERACTION_MODES.get(interaction_mode, {}).get("setting_expectations", [])
+    mode_expectations = INTERACTION_MODES.get(interaction_mode, {}).get(
+        "setting_expectations",
+        []
+    )
     intent_expectations = QUESTION_INTENT_EXPECTATIONS.get(question_intent, [])
 
     prompt_lines = [

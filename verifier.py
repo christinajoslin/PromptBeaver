@@ -1,41 +1,60 @@
+"""
+Script to verify and revise generated educational prompts. 
+
+Author: Christina Joslin 
+Date: 4/4/2026
+Purpose: 
+    - Evaluates generated educational prompts for alignment, clarity, 
+      constraint adherence, and instructional accuracy.
+    - Produces a single-turn behavior preview to assess how the prompt 
+      actually guides model behavior on a student's question.
+    - Normalizes verifier outputs and applies exact prompt-level edits 
+      when revisions are recommended.
+"""
+
+# =========================================================
+# Load Libraries 
+# =========================================================
 import json
+import os
 import random
 import time
 from typing import Any
+
 import requests
-import os
 from dotenv import load_dotenv
 
+# =========================================================
+# Configuration
+# =========================================================
 load_dotenv()
 
 VERIFIER_MODEL = "gpt-oss:120b"
 BACKUP_VERIFIER_MODEL = "llama4:latest"
 BEHAVIOR_PREVIEW_MODEL = "gpt-oss:120b"
 BACKUP_BEHAVIOR_PREVIEW_MODEL = "llama4:latest"
-REVISER_MODEL = "gpt-oss:120b"
-BACKUP_REVISER_MODEL = "llama4:latest"
 GENAI_CHAT_COMPLETIONS_URL = "https://genai.rcac.purdue.edu/api/chat/completions"
+
 GENAI_KEY = os.getenv("GENAI_API_KEY")
 if not GENAI_KEY:
     raise ValueError("GENAI_API_KEY not found in environment variables.")
 
+# =========================================================
+# System Prompts
+# =========================================================
 VERIFIER_SYSTEM_PROMPT = """
 You are a strict educational prompt quality reviewer.
 Return ONLY valid JSON that matches the requested schema.
 Do not include markdown fences or extra commentary.
 """.strip()
 
-REVISER_SYSTEM_PROMPT = """
-You are a careful educational prompt editor.
-Only apply the exact suggested edits provided to you.
-Do not rewrite the full prompt unless an edit explicitly instructs a rewrite of exact text.
-Preserve the student's exact question, the selected role, the selected intent, the selected concept focus, and the core rules.
-Return ONLY valid JSON that matches the requested schema.
-Do not include markdown fences or extra commentary.
-""".strip()
-
-
-def _extract_content(data: dict[str, Any]) -> str:
+# =========================================================
+# API Core 
+# =========================================================
+def _extract_content(data):
+    """
+    Extracts the assistant message content from the GenAI Studio response.
+    """
     if isinstance(data, dict) and "choices" in data and isinstance(data["choices"], list) and data["choices"]:
         first = data["choices"][0]
         if isinstance(first, dict):
@@ -44,18 +63,14 @@ def _extract_content(data: dict[str, Any]) -> str:
                 content = message.get("content", "")
                 if isinstance(content, str):
                     return content
+
     raise ValueError("Could not parse model response from GenAI Studio chat completions API.")
 
 
-def _call_chat_completions(
-    model: str,
-    prompt: str | None = None,
-    messages: list[dict[str, str]] | None = None,
-    system: str = "",
-    temperature: float = 0.0,
-    response_format: dict[str, Any] | None = None,
-    timeout: int = 120,
-) -> str:
+def _call_chat_completions(model, prompt, messages, system, temperature, response_format, timeout= 120):
+    """
+    Delivers an input payload to the GenAI Studio chat completions endpoint.
+    """
     headers = {
         "Authorization": f"Bearer {GENAI_KEY}",
         "Content-Type": "application/json",
@@ -76,6 +91,7 @@ def _call_chat_completions(
         "temperature": temperature,
         "stream": False,
     }
+
     if response_format:
         payload["response_format"] = response_format
 
@@ -92,24 +108,31 @@ def _call_chat_completions(
         raise RuntimeError(f"Error connecting to GenAI Studio: {exc}") from exc
 
 
-def _should_fallback(exc: Exception) -> bool:
+def _should_fallback(exc):
+    """
+    Determines whether an exception qualifies for backup-model fallback.
+    """
     message = str(exc).lower()
     fallback_signals = ["504", "503", "gateway", "time-out", "timeout", "timed out"]
     return any(signal in message for signal in fallback_signals)
 
 
 def call_genai_studio_llm_with_retry(
-    prompt: str | None = None,
-    messages: list[dict[str, str]] | None = None,
-    system: str = "",
-    primary_model: str = VERIFIER_MODEL,
-    backup_model: str = BACKUP_VERIFIER_MODEL,
-    temperature: float = 0.0,
-    response_format: dict[str, Any] | None = None,
-    max_retries_primary: int = 3,
-    max_retries_backup: int = 3,
-    return_metadata: bool = False,
-) -> str | dict[str, Any]:
+    prompt = None,
+    messages = None,
+    system= "",
+    primary_model=VERIFIER_MODEL,
+    backup_model=BACKUP_VERIFIER_MODEL,
+    temperature = 0.0,
+    response_format = None,
+    max_retries_primary = 3,
+    max_retries_backup = 3,
+    return_metadata = False,
+):
+    """
+    Calls the primary model with retry logic, then falls back to a backup 
+    model only for qualifying infrastructure-style failures.
+    """
     last_exception: Exception | None = None
 
     for attempt in range(1, max_retries_primary + 1):
@@ -170,43 +193,30 @@ def call_genai_studio_llm_with_retry(
                     f"Both primary model '{primary_model}' and backup model '{backup_model}' failed"
                 ) from last_exception
 
-
-def build_behavior_preview_messages(generated_prompt: str, student_question: str) -> list[dict[str, str]]:
+# =========================================================
+# Prompt Builders
+# =========================================================
+def build_behavior_preview_messages(generated_prompt, student_question):
+    """
+    Formats a system/user message pair for single-turn behavior preview.
+    """
     return [
         {"role": "system", "content": generated_prompt},
         {"role": "user", "content": student_question},
     ]
 
 
-def generate_behavior_preview(generated_prompt: str, student_question: str) -> dict[str, Any]:
-    try:
-        response = call_genai_studio_llm_with_retry(
-            messages=build_behavior_preview_messages(generated_prompt, student_question),
-            primary_model=BEHAVIOR_PREVIEW_MODEL,
-            backup_model=BACKUP_BEHAVIOR_PREVIEW_MODEL,
-            temperature=0.2,
-            return_metadata=True,
-        )
-        assert isinstance(response, dict)
-        return {
-            "success": True,
-            "sample_response": str(response["content"]).strip(),
-            "model_used": response.get("model_used", BEHAVIOR_PREVIEW_MODEL),
-            "used_backup_model": response.get("used_backup_model", False),
-            "api_retry_attempt_used": response.get("api_retry_attempt_used", 1),
-        }
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
-
-
 def build_static_verifier_prompt(
-    generated_prompt: str,
-    interaction_mode: str,
-    question_intent: str,
-    general_concept: str,
-    specific_concept: str,
-    has_supporting_material: bool,
-) -> str:
+    generated_prompt,
+    interaction_mode,
+    question_intent,
+    general_concept,
+    specific_concept,
+    has_supporting_material,
+):
+    """
+    Builds the verifier prompt used when no student question is provided.
+    """
     return f'''You are evaluating the quality of a generated educational prompt.
 
 Your job is to verify whether the prompt aligns with the intended instructional design.
@@ -246,15 +256,19 @@ Do not include markdown fences.'''.strip()
 
 
 def build_behavior_verifier_prompt(
-    generated_prompt: str,
-    student_question: str,
-    sample_response: str,
-    interaction_mode: str,
-    question_intent: str,
-    general_concept: str,
-    specific_concept: str,
-    has_supporting_material: bool,
-) -> str:
+    generated_prompt,
+    student_question,
+    sample_response,
+    interaction_mode,
+    question_intent,
+    general_concept,
+    specific_concept,
+    has_supporting_material,
+):
+    """
+    Builds the verifier prompt used when judging both prompt quality and 
+    single-turn model behavior.
+    """
     return f'''You are evaluating the quality of a generated educational prompt AND the model behavior it produces.
 
 Your job is to determine whether this prompt is genuinely useful for guiding a model's behavior, not merely whether it sounds well-written.
@@ -368,68 +382,16 @@ Rules for the JSON fields:
 - Keep each edit short, specific, and directly usable in the UI.
 - Do not include markdown fences.'''.strip()
 
-def build_prompt_revision_prompt(
-    generated_prompt: str,
-    student_question: str,
-    interaction_mode: str,
-    question_intent: str,
-    general_concept: str,
-    specific_concept: str,
-    has_supporting_material: bool,
-    top_issues: list[dict[str, Any]] | None,
-    recommended_edits: list[dict[str, Any]] | None,
-) -> str:
-    issues_text = json.dumps(top_issues or [], indent=2)
-    edits_text = json.dumps(recommended_edits or [], indent=2)
-    return f'''You are editing an educational system prompt using only the exact suggested edits provided below.
-
-Selected configuration that MUST stay aligned:
-- Interaction mode: {interaction_mode}
-- Question intent: {question_intent}
-- General concept: {general_concept}
-- Specific concept: {specific_concept}
-- Supporting material included: {has_supporting_material}
-- Student's exact question must remain unchanged.
-
-Original prompt:
-"""
-{generated_prompt}
-"""
-
-Student's exact question that must remain unchanged:
-"""
-{student_question}
-"""
-
-Issues identified by the verifier:
-{issues_text}
-
-Exact suggested edits to apply:
-{edits_text}
-
-Editing requirements:
-- Apply only the exact rewrite, add, and remove edits that were provided.
-- Do not paraphrase or broaden an edit beyond what was explicitly suggested.
-- Do not rewrite unrelated sections for style.
-- Preserve the student's exact question verbatim.
-- Preserve the selected role label, intent, concept focus, and rules unless an exact edit targets their wording.
-- If the suggested edits are empty or do not require any real change, return the original prompt unchanged and an empty list of revision_notes.
-
-Return ONLY valid JSON in this exact schema:
-{{
-  "revised_prompt": "full prompt text after applying only the exact edits",
-  "revision_notes": [
-    "short note 1",
-    "short note 2"
-  ]
-}}
-
-Do not include markdown fences.'''.strip()
-
-
-def _clean_revised_prompt_draft(revised_prompt_draft: Any, generated_prompt: str) -> str:
+# =========================================================
+# Formatting Helpers 
+# =========================================================
+def _clean_revised_prompt_draft(revised_prompt_draft, generated_prompt):
+    """
+    Filters out empty, unchanged, or implausibly short revised drafts.
+    """
     if not isinstance(revised_prompt_draft, str):
         return ""
+
     cleaned = revised_prompt_draft.strip()
     if not cleaned:
         return ""
@@ -440,7 +402,10 @@ def _clean_revised_prompt_draft(revised_prompt_draft: Any, generated_prompt: str
     return cleaned
 
 
-def _edit_targets_prompt(edit: dict[str, str], generated_prompt: str) -> bool:
+def _edit_targets_prompt(edit, generated_prompt):
+    """
+    Confirms that a normalized edit can be applied directly to the prompt.
+    """
     operation = edit.get("operation", "").strip().lower()
     old_text = edit.get("old_text", "").strip()
     new_text = edit.get("new_text", "").strip()
@@ -455,7 +420,10 @@ def _edit_targets_prompt(edit: dict[str, str], generated_prompt: str) -> bool:
     return False
 
 
-def _normalize_recommended_edits(recommended_edits: Any) -> list[dict[str, str]]:
+def _normalize_recommended_edits(recommended_edits):
+    """
+    Converts raw model edits into a small, standardized list of exact edits.
+    """
     normalized: list[dict[str, str]] = []
     if not isinstance(recommended_edits, list):
         return normalized
@@ -463,19 +431,28 @@ def _normalize_recommended_edits(recommended_edits: Any) -> list[dict[str, str]]
     for edit in recommended_edits:
         if not isinstance(edit, dict):
             continue
+
         operation = str(edit.get("operation", edit.get("action", "edit"))).strip().lower()
         old_text = str(edit.get("old_text", "")).strip()
         new_text = str(edit.get("new_text", "")).strip()
         text = str(edit.get("text", edit.get("recommendation", ""))).strip()
 
         if operation == "rewrite" and old_text and new_text:
-            normalized.append({"operation": "rewrite", "old_text": old_text, "new_text": new_text, "text": ""})
+            normalized.append(
+                {"operation": "rewrite", "old_text": old_text, "new_text": new_text, "text": ""}
+            )
         elif operation == "add" and text:
-            normalized.append({"operation": "add", "old_text": "", "new_text": "", "text": text})
+            normalized.append(
+                {"operation": "add", "old_text": "", "new_text": "", "text": text}
+            )
         elif operation == "remove" and old_text:
-            normalized.append({"operation": "remove", "old_text": old_text, "new_text": "", "text": ""})
+            normalized.append(
+                {"operation": "remove", "old_text": old_text, "new_text": "", "text": ""}
+            )
         elif text:
-            normalized.append({"operation": "add", "old_text": "", "new_text": "", "text": text})
+            normalized.append(
+                {"operation": "add", "old_text": "", "new_text": "", "text": text}
+            )
 
         if len(normalized) >= 5:
             break
@@ -483,7 +460,10 @@ def _normalize_recommended_edits(recommended_edits: Any) -> list[dict[str, str]]
     return normalized
 
 
-def _normalize_behavior_output(parsed: dict[str, Any], generated_prompt: str) -> dict[str, Any]:
+def _normalize_behavior_output(parsed, generated_prompt):
+    """
+    Ensures the behavior-verifier output matches the expected downstream shape.
+    """
     parsed.setdefault("overall_rating", "needs_revision")
     parsed.setdefault("overall_pass", False)
     parsed.setdefault("alignment_score", "N/A")
@@ -493,6 +473,7 @@ def _normalize_behavior_output(parsed: dict[str, Any], generated_prompt: str) ->
     parsed.setdefault("top_issues", [])
     parsed.setdefault("recommended_edits", [])
     parsed.setdefault("revised_prompt_draft", "")
+
     if not isinstance(parsed.get("top_issues"), list):
         parsed["top_issues"] = []
 
@@ -501,20 +482,56 @@ def _normalize_behavior_output(parsed: dict[str, Any], generated_prompt: str) ->
         edit for edit in normalized_edits if _edit_targets_prompt(edit, generated_prompt)
     ]
 
-    cleaned_draft = _clean_revised_prompt_draft(parsed.get("revised_prompt_draft", ""), generated_prompt)
-    parsed["revised_prompt_draft"] = cleaned_draft if cleaned_draft and cleaned_draft != generated_prompt.strip() else ""
+    cleaned_draft = _clean_revised_prompt_draft(
+        parsed.get("revised_prompt_draft", ""),
+        generated_prompt,
+    )
+    parsed["revised_prompt_draft"] = (
+        cleaned_draft if cleaned_draft and cleaned_draft != generated_prompt.strip() else ""
+    )
+
     return parsed
+
+# =========================================================
+# Verification 
+# =========================================================
+def generate_behavior_preview(generated_prompt, student_question):
+    """
+    Produces a one-turn sample response for behavior-based prompt review.
+    """
+    try:
+        response = call_genai_studio_llm_with_retry(
+            messages=build_behavior_preview_messages(generated_prompt, student_question),
+            primary_model=BEHAVIOR_PREVIEW_MODEL,
+            backup_model=BACKUP_BEHAVIOR_PREVIEW_MODEL,
+            temperature=0.2,
+            return_metadata=True,
+        )
+        assert isinstance(response, dict)
+        return {
+            "success": True,
+            "sample_response": str(response["content"]).strip(),
+            "model_used": response.get("model_used", BEHAVIOR_PREVIEW_MODEL),
+            "used_backup_model": response.get("used_backup_model", False),
+            "api_retry_attempt_used": response.get("api_retry_attempt_used", 1),
+        }
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
 
 
 def verify_prompt_with_llm(
-    generated_prompt: str,
-    interaction_mode: str,
-    question_intent: str,
-    general_concept: str,
-    specific_concept: str,
-    has_supporting_material: bool,
-    student_question: str | None = None,
-) -> dict[str, Any]:
+    generated_prompt,
+    interaction_mode,
+    question_intent,
+    general_concept,
+    specific_concept,
+    has_supporting_material,
+    student_question= None,
+):
+    """
+    Runs either static prompt verification or behavior-based verification, 
+    depending on whether a student question is supplied.
+    """
     try:
         if not student_question:
             verifier_prompt = build_static_verifier_prompt(
@@ -540,7 +557,10 @@ def verify_prompt_with_llm(
 
         preview_result = generate_behavior_preview(generated_prompt, student_question)
         if not preview_result.get("success"):
-            return {"success": False, "error": f"Behavior preview failed: {preview_result.get('error', 'Unknown error')}"}
+            return {
+                "success": False,
+                "error": f"Behavior preview failed: {preview_result.get('error', 'Unknown error')}",
+            }
 
         verifier_prompt = build_behavior_verifier_prompt(
             generated_prompt=generated_prompt,
@@ -569,19 +589,23 @@ def verify_prompt_with_llm(
             "used_backup_model": preview_result.get("used_backup_model", False),
             "api_retry_attempt_used": preview_result.get("api_retry_attempt_used", 1),
         }
+
         if isinstance(response, dict):
             parsed["verifier_model_used"] = response.get("model_used", VERIFIER_MODEL)
             parsed["verifier_used_backup_model"] = response.get("used_backup_model", False)
             parsed["verifier_api_retry_attempt_used"] = response.get("api_retry_attempt_used", 1)
+
         return {"success": True, "data": parsed}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
 
-
-def _apply_exact_recommended_edits(
-    generated_prompt: str,
-    recommended_edits: list[dict[str, Any]] | None = None,
-) -> tuple[str, list[str]]:
+# =========================================================
+# Revision Helpers 
+# =========================================================
+def _apply_exact_recommended_edits(generated_prompt,recommended_edits = None):
+    """
+    Applies only the exact normalized edits returned by the verifier.
+    """
     prompt = generated_prompt
     notes: list[str] = []
 
@@ -611,21 +635,39 @@ def _apply_exact_recommended_edits(
     prompt = "\n".join(line.rstrip() for line in prompt.splitlines())
     while "\n\n\n" in prompt:
         prompt = prompt.replace("\n\n\n", "\n\n")
+
     return prompt.strip(), notes[:5]
 
-
+# =========================================================
+# Revision 
+# =========================================================
 def revise_prompt_with_llm(
-    generated_prompt: str,
-    student_question: str,
-    interaction_mode: str,
-    question_intent: str,
-    general_concept: str,
-    specific_concept: str,
-    has_supporting_material: bool,
-    top_issues: list[dict[str, Any]] | None = None,
-    recommended_edits: list[dict[str, Any]] | None = None,
-    fallback_revised_prompt_draft: str | None = None,
-) -> dict[str, Any]:
+    generated_prompt,
+    student_question,
+    interaction_mode,
+    question_intent,
+    general_concept,
+    specific_concept,
+    has_supporting_material,
+    top_issues = None,
+    recommended_edits = None,
+    fallback_revised_prompt_draft = None,
+):
+    """
+    Revises a prompt by applying exact recommended edits, with an optional 
+    fallback to a verified revised draft when the exact edits do not change 
+    the prompt.
+    """
+    _ = (
+        student_question,
+        interaction_mode,
+        question_intent,
+        general_concept,
+        specific_concept,
+        has_supporting_material,
+        top_issues,
+    )
+
     try:
         normalized_edits = _normalize_recommended_edits(recommended_edits)
         if not normalized_edits:
@@ -644,17 +686,25 @@ def revise_prompt_with_llm(
         )
 
         if revised_prompt.strip() == generated_prompt.strip():
-            cleaned_fallback = _clean_revised_prompt_draft(fallback_revised_prompt_draft or "", generated_prompt)
+            cleaned_fallback = _clean_revised_prompt_draft(
+                fallback_revised_prompt_draft or "",
+                generated_prompt,
+            )
             if cleaned_fallback:
                 return {
                     "success": True,
                     "revised_prompt": cleaned_fallback,
-                    "revision_notes": ["Used the verifier's revised draft because the exact edits did not change the prompt."],
+                    "revision_notes": [
+                        "Used the verifier's revised draft because the exact edits did not change the prompt."
+                    ],
                     "model_used": "fallback_revised_prompt_draft",
                     "used_backup_model": False,
                     "api_retry_attempt_used": 1,
                 }
-            return {"success": False, "error": "The exact suggested edits did not produce any change in the prompt."}
+            return {
+                "success": False,
+                "error": "The exact suggested edits did not produce any change in the prompt.",
+            }
 
         return {
             "success": True,
@@ -665,12 +715,17 @@ def revise_prompt_with_llm(
             "api_retry_attempt_used": 1,
         }
     except Exception as exc:
-        cleaned_fallback = _clean_revised_prompt_draft(fallback_revised_prompt_draft or "", generated_prompt)
+        cleaned_fallback = _clean_revised_prompt_draft(
+            fallback_revised_prompt_draft or "",
+            generated_prompt,
+        )
         if cleaned_fallback:
             return {
                 "success": True,
                 "revised_prompt": cleaned_fallback,
-                "revision_notes": ["Used the verifier's fallback revised draft because exact edit application failed."],
+                "revision_notes": [
+                    "Used the verifier's fallback revised draft because exact edit application failed."
+                ],
                 "model_used": "fallback_revised_prompt_draft",
                 "used_backup_model": False,
                 "api_retry_attempt_used": 1,
