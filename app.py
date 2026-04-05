@@ -290,8 +290,10 @@ APP_STYLES = """
 # UI Setup
 # =========================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon=PAGE_ICON, layout=LAYOUT)
+header_left, header_center, header_right = st.columns([1, 2, 1])
 
-st.title(f"{PAGE_ICON} {PAGE_TITLE}")
+with header_center:
+    st.image("assets/icon_prompt_mascot.png", width=450)
 st.caption("Generate a ready-to-copy user prompt for conceptual computer science questions.")
 st.markdown(APP_STYLES, unsafe_allow_html=True)
 
