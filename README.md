@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  Build better prompts. Learn better concepts.
+  Build smarter prompts. Learn deeper. 
 </p>
 
 ---
