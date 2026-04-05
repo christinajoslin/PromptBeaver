@@ -323,7 +323,7 @@ initialize_session_state()
 # =========================================================
 # Rendering Helpers
 # =========================================================
-def summarize_selection(label, value, description):
+def summarize_selection(label, value, description=None):
     """
     Shows a compact summary chip beneath a selected UI control.
     """

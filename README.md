@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="prompt_beaver_mascot.png" alt="PromptBeaver Mascot" width="180"/>
+  <img src="assets/prompt_beaver_mascot.png" alt="PromptBeaver Mascot" width="220"/>
 </p>
-
-<h1 align="center">🦫 PromptBeaver</h1>
 
 <p align="center">
   Build better prompts. Learn better concepts.
@@ -18,146 +16,129 @@
 
 ## 🎯 Overview
 
-PromptBeaver is a prompt engineering tool designed for **undergraduate students in Computer Science, Data Science, and AI**.
+PromptBeaver is a prompt engineering tool designed for **undergraduate students studying Computer Science (CS), Data Science (DS), and/or Artificial Intelligence (AI)**.
 
-It helps students:
-- Generate structured prompts for conceptual questions  
-- Understand how prompt design affects LLM behavior  
-- Iteratively refine prompts using evaluation feedback  
+It does **not generate answers or solve homework problems**. Instead, it produces a **high-quality, copy-paste-ready prompt** that students can use in **any LLM of their choice** (e.g., ChatGPT, Claude) to receive **clear, structured, conceptual explanations**.
 
-Instead of hiding prompt engineering, PromptBeaver makes it **explicit, structured, and learnable**.
+PromptBeaver helps students:
+
+- Formulate **precise prompts** that clearly express conceptual questions  
+- Guide LLMs toward **teaching and explanation**, not solution generation  
+- Avoid prompts that lead to **answer leakage or homework completion**  
+- Create a **single prompt that initiates a full, high-quality learning interaction**  
+
+The result is a **refined prompt (not an answer)**that enables students to engage with LLMs in a way similar to **TA or professor office hours**.
+
+By making prompt engineering **explicit, structured, and learnable**, PromptBeaver empowers students to become more independent and effective learners.
 
 ---
 
-## 🧠 Core Workflow
+## 🎓 Supported Courses
 
-```
-User Input (question + selections)
-   ↓
-Prompt Builder
-   ↓
-GenAI Studio API → Behavior Preview
-   ↓
-GenAI Studio API → Verifier
-   ↓
-Edit Normalization
-   ↓
-Optional Revision
-   ↓
-Re-Verification
-```
+PromptBeaver is aligned with core undergraduate CS/DS/AI coursework:
+
+- **CS 180** – Object-Oriented Programming  
+- **CS 182** – Foundations of Computer Science  
+- **CS 251 / CS 253** – Data Structures & Algorithms  
+- **CS 373** – Data Mining & Machine Learning  
+
+These courses guide both **concept selection and prompt structure**, ensuring prompts remain focused on conceptual mastery rather than solution generation.
+
+---
+
+## 🧠 User Input Interface
+
+<p align="center">
+  <img src="assets/dashboard_input.png" alt="Dashboard Input UI" width="500"/>
+</p>
+
+Users configure a prompt by selecting instructional behavior, conceptual focus, and learning intent.
+
+### Required Inputs
+
+| Input | Description | Example Options |
+|------|------------|----------------|
+| **Interaction Mode** | Determines how the LLM teaches and responds | Socratic Coach, Guided Tutor |
+| **Question Intent** | Defines the goal of the explanation | Clarify a Concept, Walk Through an Example |
+| **General Concept** | Broad subject area (based on course) | Object-Oriented Programming |
+| **Specific Concept** | Targeted subtopic within the domain | Hash Tables, Classification |
+| **User Question** | Conceptual question (≤150 words) | “Why is hash table lookup O(1) on average?” |
+
+### Optional Inputs
+
+| Input | Description |
+|------|------------|
+| **Supporting Materials** | Lecture slides, notes, or external context to ground the response |
+
+### ✏️ Output
+
+PromptBeaver outputs a **fully structured prompt** that:
+
+- Can be **copied and pasted into any LLM**
+- Is optimized for **conceptual understanding (not answers)**
+- Encourages **step-by-step explanation and guided reasoning**
+- Initiates a **complete learning interaction from a single prompt**
+
+It does **not** generate:
+- Homework solutions  
+- Completed code  
+- Direct answers to assignments  
 
 ---
 
 ## 🏗️ System Architecture
 
-```mermaid
-flowchart TD
-    A[Student Input<br/>Question + Selections] --> B[Prompt Builder]
-    B --> C[Structured Prompt]
+<p align="center">
+  <img src="assets/mermaid_diagram.png" alt="Architecture Diagram" width="300"/>
+</p>
 
-    C --> D[GenAI Studio API]
-    D --> E[Behavior Preview<br/>gpt-oss:120b]
+### Pipeline Overview
 
-    E --> F[Sample Response]
+1. **Prompt Construction**
+   - Structured template built from user inputs
 
-    C --> G[GenAI Studio API]
-    F --> G
-    G --> H[Verifier Model<br/>gpt-oss:120b]
+2. **LLM Behavior Preview**
+   - API call to GenAI Studio using primary model
+   - Simulates real response
 
-    H --> I[Evaluation Output<br/>Scores + Issues + Edits]
+3. **Evaluation (LLM-as-Judge)**
+   - Second API call evaluates response quality using initial prompt
 
-    I --> J{Edits Needed?}
-    J -->|Yes| K[Apply Exact Edits]
-    K --> C
-    J -->|No| L[Final Prompt Output]
+4. **Scoring + Feedback**
+   - Metrics computed and feedback generated
+
+5. **Auto-Revision**
+   - Prompt updated and re-evaluated
+
+---
+
+## 🗂️ Repository Structure
+
 ```
-
-This pipeline ensures prompts are not only generated, but **tested against real model behavior, evaluated with structured metrics, and iteratively improved**.
-
----
-
-## 🔌 Model & API Details
-
-All model calls are executed through the **Purdue GenAI Studio API**.
-
-Models used:
-- **Primary:** gpt-oss:120b  
-- **Fallback:** llama4:latest  
-
-Used for:
-- Behavior preview (simulated first response)
-- Prompt verification (LLM-as-judge evaluation)
-
-Includes retry and fallback logic for reliability.
-
----
-
-## 🧩 Features
-
-### Structured Prompt Generation
-- Interaction mode (Socratic, Guided Tutor, etc.)
-- Question intent (clarify, walkthrough, reasoning check)
-- Course-aligned concept selection
-
-### Behavior Preview
-- Shows how an LLM actually responds
-- Detects answer leakage or misalignment
-
-### Evaluation Metrics
-- Alignment  
-- Clarity  
-- Constraint Adherence  
-- Accuracy  
-
-### Auto-Revision
-- Applies exact prompt edits
-- Re-runs evaluation instantly
-
----
-
-## 🎓 Target Audience
-
-Designed for:
-- Computer Science students  
-- Data Science students  
-- AI / Machine Learning students  
-
-Aligned with courses such as:
-- CS 180 (Programming)
-- CS 182 (Foundations)
-- CS 251 / 253 (Data Structures & Algorithms)
-- CS 373 (Machine Learning)
-
----
-
-## 🔒 Design Principles
-
-- No direct homework answers  
-- Concept-first learning  
-- Transparent prompt structure  
-- Behavior-driven evaluation  
+PromptBeaver/
+├── app.py                  # Main Streamlit application
+├── prompt_builder.py       # Prompt construction logic
+├── verifier.py             # LLM-as-judge evaluation + scoring
+├── assets/
+│   ├── prompt_beaver_mascot.png
+│   ├── dashboard_input.png
+│   └── mermaid-diagram.png
+├── requirements.txt
+└── README.md
+```
 
 ---
 
 ## 🤖 AI Disclosure
 
-AI tools were used in a **supporting role only**:
+AI tools were used **only** for:
 - Boilerplate code generation  
 - Debugging assistance  
 - UI refinement  
+- Initial documentation generation  
 
 Human-driven:
-- Project ideation and motivation  
-- Prompt engineering framework  
-- Evaluation rubric and scoring system  
-- System design and pipeline logic  
-- Final edits and formatting  
-
----
-
-## 💡 Final Thought
-
-PromptBeaver teaches a skill most tools skip:
-
-**How to ask better questions — not just get answers.**
+- Project design   
+- Evaluation metrics  
+- System pipeline  
+- Final edits  
