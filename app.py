@@ -5,7 +5,7 @@ Author: Christina Joslin
 Date: 4/4/2026
 Purpose:
     - Lets a user configure an instructional interaction mode, concept focus,
-      and question intent to generate a structured prompt.
+      and question intent to generate a structured user prompt.
     - Runs an LLM behavior preview via Purdue GenAI Studio and verifier pass to assess prompt quality.
     - Supports exact-edit prompt revision and re-verification inside the UI.
 """
@@ -34,12 +34,15 @@ PAGE_ICON = "🦫"
 LAYOUT = "wide"
 MAX_QUESTION_WORDS = 150
 DOWNLOAD_FILENAME = "promptbeaver_prompt.txt"
+EXAMPLE_ANALYZE_PROMPT = "You are a helpful data structures tutor. Analyze my prompt using the student's question automatically included below. Explain the idea briefly and do NOT solve homework problems directly. Keep this instructional style for the rest of the conversation unless the student changes the request."
 
 DEFAULT_SESSION_STATE = {
+    "app_mode": "Analyze My Prompt",
     "final_prompt": None,
     "original_prompt": None,
     "final_prompt_source": "original",
     "verification_result": None,
+    "baseline_verification_result": None,
     "last_revision_notes": [],
     "interaction_mode_select": None,
     "question_intent_select": None,
@@ -47,6 +50,8 @@ DEFAULT_SESSION_STATE = {
     "specific_concept_select": None,
     "student_question_input": "",
     "supporting_material_type_select": None,
+    "custom_prompt_input": "",
+    "manual_prompt_editor": "",
 }
 
 APP_STYLES = """
@@ -282,6 +287,60 @@ APP_STYLES = """
 .pb-behavior-body th {
     background: #f9fafb;
     font-weight: 700;
+}
+.pb-alert-red {
+    padding: 0.8rem 0.9rem;
+    border: 1px solid #fecaca;
+    border-left: 5px solid #dc2626;
+    border-radius: 12px;
+    background: #fef2f2;
+    color: #991b1b;
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1.45;
+    margin-top: 0.55rem;
+}
+.pb-delta-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    padding: 0.95rem 1rem;
+    background: #ffffff;
+    min-height: 118px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.38rem;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.pb-delta-label {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #374151;
+    line-height: 1.25;
+}
+.pb-delta-value {
+    font-size: 1.55rem;
+    font-weight: 800;
+    color: #111827;
+    line-height: 1;
+}
+.pb-delta-detail {
+    font-size: 0.88rem;
+    color: #6b7280;
+    line-height: 1.4;
+}
+.pb-delta-change {
+    font-size: 0.92rem;
+    font-weight: 800;
+    line-height: 1.35;
+}
+.pb-delta-up {
+    color: #15803d;
+}
+.pb-delta-down {
+    color: #dc2626;
+}
+.pb-delta-flat {
+    color: #6b7280;
 }
 </style>
 """
@@ -560,9 +619,9 @@ def collect_input_errors(
     if question_intent is None:
         errors.append("Please select a question intent.")
     if not question.strip():
-        errors.append("Please enter a student question.")
+        errors.append("Please enter your question.")
     if word_count > MAX_QUESTION_WORDS:
-        errors.append(f"The student question must be {MAX_QUESTION_WORDS} words or fewer.")
+        errors.append(f"Your question must be {MAX_QUESTION_WORDS} words or fewer.")
     if supporting_material_type is not None and uploaded_file is None:
         errors.append("You selected a supporting material type but did not upload a file.")
     if supporting_material_type is None and uploaded_file is not None:
@@ -571,41 +630,231 @@ def collect_input_errors(
     return errors
 
 # =========================================================
+# Score / Result Helpers
+# =========================================================
+def score_to_int(value):
+    """
+    Converts numeric-looking metric values to integers when possible.
+    """
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def extract_score_snapshot(parsed_result):
+    """
+    Pulls the main 1-5 scores from a parsed verifier result.
+    """
+    if not isinstance(parsed_result, dict):
+        return {}
+
+    return {
+        "Alignment": score_to_int(parsed_result.get("alignment_score")),
+        "Clarity": score_to_int(parsed_result.get("clarity_score")),
+        "Constraint adherence": score_to_int(parsed_result.get("constraint_score")),
+        "Accuracy": score_to_int(parsed_result.get("accuracy_score", parsed_result.get("behavior_score"))),
+    }
+
+
+def render_delta_summary(before_result, after_result):
+    """
+    Displays before/after score changes after a revision.
+    """
+    if not isinstance(before_result, dict) or not isinstance(after_result, dict):
+        return
+
+    before_scores = extract_score_snapshot(before_result)
+    after_scores = extract_score_snapshot(after_result)
+
+    comparable = [label for label in before_scores if before_scores[label] is not None and after_scores.get(label) is not None]
+    if not comparable:
+        return
+
+    st.markdown("<div class='pb-section-label'>Delta after edits</div>", unsafe_allow_html=True)
+    delta_cols = st.columns(len(comparable))
+
+    for col, label in zip(delta_cols, comparable):
+        before_value = before_scores[label]
+        after_value = after_scores[label]
+        delta = after_value - before_value
+
+        if delta > 0:
+            delta_class = "pb-delta-up"
+            delta_symbol = "↑"
+            delta_text = f"+{delta}"
+        elif delta < 0:
+            delta_class = "pb-delta-down"
+            delta_symbol = "↓"
+            delta_text = str(abs(delta))
+        else:
+            delta_class = "pb-delta-flat"
+            delta_symbol = "→"
+            delta_text = "0"
+
+        col.markdown(
+            f"""
+            <div class='pb-delta-card'>
+                <div class='pb-delta-label'>{html.escape(label)}</div>
+                <div class='pb-delta-value'>{after_value}</div>
+                <div class='pb-delta-detail'>{before_value} → {after_value}</div>
+                <div class='pb-delta-change {delta_class}'>{delta_symbol} {delta_text}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_manual_prompt_editor(current_prompt, rerun_label, button_key, question, interaction_mode, question_intent, general_concept, specific_concept, has_supporting_material):
+    """
+    Lets the user manually edit the full prompt and immediately re-evaluate it.
+    """
+    st.markdown("<div class='pb-section-label'>Manual prompt editing</div>", unsafe_allow_html=True)
+    manual_prompt = st.text_area(
+        "Edit the full prompt directly",
+        value=current_prompt,
+        height=260,
+        key="manual_prompt_editor",
+        help="Use this to override the generated or revised prompt before re-running evaluation.",
+    )
+
+    rerun_manual = st.button(rerun_label, key=button_key, use_container_width=True)
+    if rerun_manual:
+        if not manual_prompt.strip():
+            st.error("Please enter a prompt before re-running evaluation.")
+        else:
+            st.session_state.final_prompt = manual_prompt.strip()
+            st.session_state.final_prompt_source = "manual"
+            with st.spinner("Re-running behavior preview and prompt evaluation..."):
+                st.session_state.verification_result = rerun_verification_for_prompt(
+                    prompt=st.session_state.final_prompt,
+                    question=question,
+                    interaction_mode=interaction_mode,
+                    question_intent=question_intent,
+                    general_concept=general_concept,
+                    specific_concept=specific_concept,
+                    has_supporting_material=has_supporting_material,
+                )
+            st.rerun()
+
+
+def build_generated_prompt(question, question_intent, general_concept, specific_concept, interaction_mode, supporting_material_type, uploaded_file):
+    """
+    Builds the guided prompt using the existing prompt template.
+    """
+    return build_user_prompt(
+        question=question.strip(),
+        question_intent=question_intent,
+        general_concept=general_concept,
+        specific_concept=specific_concept,
+        interaction_mode=interaction_mode,
+        interaction_mode_description=INTERACTION_MODES[interaction_mode]["instruction_description"],
+        supplemental_material_type=supporting_material_type if uploaded_file else None,
+        supplemental_material_file_name=uploaded_file.name if uploaded_file else None,
+    )
+
+
+def build_analyze_mode_prompt(prompt_text, question):
+    """
+    Appends the student's current question to an existing prompt for analysis.
+    """
+    return "\n".join(
+        [
+            prompt_text.strip(),
+            "",
+            "Current student's question",
+            f'"{question.strip()}"',
+            "",
+            "Treat the quoted current student's question above as the exact question to respond to.",
+        ]
+    ).strip()
+
+
+# =========================================================
 # Main Layout 
 # =========================================================
+st.markdown("### Choose a workflow")
+app_mode = st.radio(
+    "Workflow",
+    options=["Analyze My Prompt", "Build a Prompt"],
+    horizontal=True,
+    key="app_mode",
+    help="Analyze an existing prompt or generate one with the guided builder.",
+)
+
+if app_mode == "Analyze My Prompt":
+    st.caption("Paste an existing prompt, automatically include your question beneath it, then preview and improve the full prompt.")
+else:
+    st.caption("Generate a structured prompt, then immediately verify and improve it.")
+
 left_col, right_col = st.columns([1.05, 1], gap="large")
 
 with left_col:
-
-    # Prompt setup controls
     st.markdown("<div class='pb-card'>", unsafe_allow_html=True)
-    st.markdown("<div class='pb-title'>1) Prompt setup</div>", unsafe_allow_html=True)
+    if app_mode == "Analyze My Prompt":
+        st.markdown("<div class='pb-title'>1) Prompt to analyze</div>", unsafe_allow_html=True)
+        st.caption("Your question from section 3 will automatically be appended below this prompt in the generated version.")
+        prompt_input = st.text_area(
+            "Paste your existing prompt",
+            height=260,
+            placeholder=EXAMPLE_ANALYZE_PROMPT,
+            key="custom_prompt_input",
+            help="Example prompt: You are a helpful data structures tutor. Analyze my prompt using the student's question automatically included below. Explain the idea briefly and do NOT solve homework problems directly. Keep this instructional style for the rest of the conversation unless the student changes the request.",
+        )
+        st.caption(f"Example prompt: {EXAMPLE_ANALYZE_PROMPT}")
+    else:
+        st.markdown("<div class='pb-title'>1) Prompt setup</div>", unsafe_allow_html=True)
 
-    interaction_mode = st.selectbox(
-        "Interaction mode",
-        options=list(INTERACTION_MODES.keys()),
-        index=None,
-        placeholder="Choose an interaction mode...",
-        key="interaction_mode_select",
-    )
-    if interaction_mode:
-        summarize_selection("Mode", interaction_mode, INTERACTION_MODES[interaction_mode]["ui_explanation"])
+        interaction_mode = st.selectbox(
+            "Interaction mode",
+            options=list(INTERACTION_MODES.keys()),
+            index=None,
+            placeholder="Choose an interaction mode...",
+            key="interaction_mode_select",
+        )
+        if interaction_mode:
+            summarize_selection("Mode", interaction_mode, INTERACTION_MODES[interaction_mode]["ui_explanation"])
 
-    question_intent = st.selectbox(
-        "Question intent",
-        options=list(QUESTION_INTENTS.keys()),
-        index=None,
-        placeholder="Choose a question intent...",
-        key="question_intent_select",
-    )
-    if question_intent:
-        summarize_selection("Intent", question_intent, QUESTION_INTENTS[question_intent])
+        question_intent = st.selectbox(
+            "Question intent",
+            options=list(QUESTION_INTENTS.keys()),
+            index=None,
+            placeholder="Choose a question intent...",
+            key="question_intent_select",
+        )
+        if question_intent:
+            summarize_selection("Intent", question_intent, QUESTION_INTENTS[question_intent])
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Concept selection controls
     st.markdown("<div class='pb-card'>", unsafe_allow_html=True)
-    st.markdown("<div class='pb-title'>2) Concept selection</div>", unsafe_allow_html=True)
+    section_title = "2) Evaluation targets" if app_mode == "Analyze My Prompt" else "2) Concept selection"
+    st.markdown(f"<div class='pb-title'>{section_title}</div>", unsafe_allow_html=True)
+
+    if app_mode == "Analyze My Prompt":
+        st.caption("These settings tell PromptBeaver how to evaluate your pasted prompt.")
+
+    interaction_mode = st.selectbox(
+        "Interaction mode" if app_mode == "Analyze My Prompt" else "Interaction mode (evaluation target)",
+        options=list(INTERACTION_MODES.keys()),
+        index=None,
+        placeholder="Choose an interaction mode...",
+        key="interaction_mode_select" if app_mode == "Analyze My Prompt" else "interaction_mode_select_builder_reuse",
+    ) if app_mode == "Analyze My Prompt" else interaction_mode
+
+    if app_mode == "Analyze My Prompt" and interaction_mode:
+        summarize_selection("Mode", interaction_mode, INTERACTION_MODES[interaction_mode]["ui_explanation"])
+
+    question_intent = st.selectbox(
+        "Question intent" if app_mode == "Analyze My Prompt" else "Question intent (evaluation target)",
+        options=list(QUESTION_INTENTS.keys()),
+        index=None,
+        placeholder="Choose a question intent...",
+        key="question_intent_select" if app_mode == "Analyze My Prompt" else "question_intent_select_builder_reuse",
+    ) if app_mode == "Analyze My Prompt" else question_intent
+
+    if app_mode == "Analyze My Prompt" and question_intent:
+        summarize_selection("Intent", question_intent, QUESTION_INTENTS[question_intent])
 
     general_concept = st.selectbox(
         "General concept",
@@ -635,41 +884,48 @@ with left_col:
     st.markdown("</div>", unsafe_allow_html=True)
 
 with right_col:
-
-    # Student question input
     st.markdown("<div class='pb-card'>", unsafe_allow_html=True)
-    st.markdown("<div class='pb-title'>3) Your question</div>", unsafe_allow_html=True)
+    question_title = "3) Your question" if app_mode == "Build a Prompt" else "3) Question to include below your prompt"
+    st.markdown(f"<div class='pb-title'>{question_title}</div>", unsafe_allow_html=True)
 
     question = st.text_area(
         f"({MAX_QUESTION_WORDS} words max)",
         height=220,
-        placeholder="Type the conceptual question here...",
-        help="Enter the conceptual question you want an LLM to respond to.",
+        placeholder="e.g., Why is dynamic array resizing considered O(1) amortized?",
+        help="Enter the full question the model should respond to during the behavior preview. In Analyze My Prompt mode, this exact question is automatically added below your pasted prompt in the generated version.",
         key="student_question_input",
     )
     word_count = len(question.split()) if question.strip() else 0
     st.caption(f"Word count: {word_count}/{MAX_QUESTION_WORDS}")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Optional supporting materials
     st.markdown("<div class='pb-card'>", unsafe_allow_html=True)
-    st.markdown("<div class='pb-title'>4) Optional supporting materials</div>", unsafe_allow_html=True)
+    optional_title = "4) Optional supporting materials" if app_mode == "Build a Prompt" else "4) Optional evaluation context"
+    st.markdown(f"<div class='pb-title'>{optional_title}</div>", unsafe_allow_html=True)
 
     supporting_material_type = st.selectbox(
         "Supporting material type",
         options=list(SUPPORTING_MATERIALS.keys()),
         index=None,
         placeholder="Choose a supporting material type...",
-        help="Upload materials to prioritize course-specific terminology and examples in the prompt.",
+        help="Upload materials (lecture slides, personal notes, or textbook excerpts) to prioritize course-specific terminology and examples in the prompt. Supporting materials should be used only for conceptual questions and context, not to provide a specific homework problem for the model to solve.",
         key="supporting_material_type_select",
     )
 
     uploaded_file = st.file_uploader("Upload supporting file", type=["pdf", "txt", "md", "docx"])
+    st.markdown(
+        "<div class='pb-alert-red'> Supporting materials are for conceptual context only, NOT for submitting a specific homework problem for an LLM to solve.</div>",
+        unsafe_allow_html=True,
+    )
 
     if supporting_material_type:
         summarize_selection("Material", supporting_material_type, SUPPORTING_MATERIALS[supporting_material_type])
     if uploaded_file is not None:
         st.caption(f"Attached file: {uploaded_file.name}")
+
+    
+    if app_mode == "Analyze My Prompt":
+        st.caption("Uploaded materials are used only as evaluation context. Your question is still automatically appended below your pasted prompt.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -682,44 +938,70 @@ render_focus_preview(
     uploaded_file,
 )
 
-submit_clicked = st.button("Generate Prompt", use_container_width=True, type="primary")
+button_label = "Analyze Prompt Behavior" if app_mode == "Analyze My Prompt" else "Generate + Analyze Prompt"
+submit_clicked = st.button(button_label, use_container_width=True, type="primary")
 
 if submit_clicked:
-    errors = collect_input_errors(
-        interaction_mode=interaction_mode,
-        general_concept=general_concept,
-        specific_concept=specific_concept,
-        question_intent=question_intent,
-        question=question,
-        word_count=word_count,
-        supporting_material_type=supporting_material_type,
-        uploaded_file=uploaded_file,
-    )
+    errors = []
+    if app_mode == "Analyze My Prompt":
+        if not st.session_state.custom_prompt_input.strip():
+            errors.append("Please paste a prompt to analyze.")
+        if interaction_mode is None:
+            errors.append("Please select an interaction mode.")
+        if general_concept is None:
+            errors.append("Please select a general concept.")
+        if specific_concept is None:
+            errors.append("Please select a specific concept.")
+        if question_intent is None:
+            errors.append("Please select a question intent.")
+        if not question.strip():
+            errors.append("Please enter your question.")
+        if word_count > MAX_QUESTION_WORDS:
+            errors.append(f"Your question must be {MAX_QUESTION_WORDS} words or fewer.")
+    else:
+        errors = collect_input_errors(
+            interaction_mode=interaction_mode,
+            general_concept=general_concept,
+            specific_concept=specific_concept,
+            question_intent=question_intent,
+            question=question,
+            word_count=word_count,
+            supporting_material_type=supporting_material_type,
+            uploaded_file=uploaded_file,
+        )
 
     if errors:
         reset_generation_state()
         for error in errors:
             st.error(error)
     else:
-        generated_prompt = build_user_prompt(
-            question=question.strip(),
-            question_intent=question_intent,
-            general_concept=general_concept,
-            specific_concept=specific_concept,
-            interaction_mode=interaction_mode,
-            interaction_mode_description=INTERACTION_MODES[interaction_mode]["instruction_description"],
-            supplemental_material_type=supporting_material_type if uploaded_file else None,
-            supplemental_material_file_name=uploaded_file.name if uploaded_file else None,
-        )
+        if app_mode == "Analyze My Prompt":
+            target_prompt = build_analyze_mode_prompt(
+                st.session_state.custom_prompt_input.strip(),
+                question,
+            )
+            st.session_state.original_prompt = target_prompt
+            st.session_state.final_prompt = target_prompt
+        else:
+            target_prompt = build_generated_prompt(
+                question=question,
+                question_intent=question_intent,
+                general_concept=general_concept,
+                specific_concept=specific_concept,
+                interaction_mode=interaction_mode,
+                supporting_material_type=supporting_material_type,
+                uploaded_file=uploaded_file,
+            )
+            st.session_state.original_prompt = target_prompt
+            st.session_state.final_prompt = target_prompt
 
-        st.session_state.final_prompt = generated_prompt
-        st.session_state.original_prompt = generated_prompt
         st.session_state.final_prompt_source = "original"
         st.session_state.last_revision_notes = []
+        st.session_state.baseline_verification_result = None
 
         with st.spinner("Running behavior preview and prompt evaluation..."):
             st.session_state.verification_result = rerun_verification_for_prompt(
-                prompt=generated_prompt,
+                prompt=target_prompt,
                 question=question,
                 interaction_mode=interaction_mode,
                 question_intent=question_intent,
@@ -729,17 +1011,19 @@ if submit_clicked:
             )
 
 if st.session_state.final_prompt:
-    result_tabs = ["Generated prompt"]
+    result_tabs = ["Prompt"]
     if st.session_state.verification_result is not None:
         result_tabs.append("Verification")
 
     tabs = st.tabs(result_tabs)
 
     with tabs[0]:
-
-        # Generated prompt output
         if st.session_state.final_prompt_source == "revised":
             st.info("You are viewing the revised prompt.")
+        elif st.session_state.final_prompt_source == "manual":
+            st.info("You are viewing a manually edited prompt.")
+        elif app_mode == "Analyze My Prompt":
+            st.info("You are viewing your analyzed prompt with your question automatically included below it.")
 
         st.code(st.session_state.final_prompt, language="text")
 
@@ -756,21 +1040,36 @@ if st.session_state.final_prompt:
         with restore_col:
             if st.session_state.final_prompt_source != "original" and st.session_state.original_prompt:
                 if st.button(
-                    "Restore original generated prompt",
+                    "Restore original prompt",
                     key="restore_original_prompt_inline",
                     use_container_width=True,
                 ):
                     st.session_state.final_prompt = st.session_state.original_prompt
                     st.session_state.final_prompt_source = "original"
                     st.session_state.last_revision_notes = []
+                    if st.session_state.baseline_verification_result is not None:
+                        st.session_state.verification_result = st.session_state.baseline_verification_result
                     st.rerun()
             else:
                 st.button(
-                    "Restore original generated prompt",
+                    "Restore original prompt",
                     key="restore_original_prompt_inline_disabled",
                     use_container_width=True,
                     disabled=True,
                 )
+
+        with st.expander("Manual edit and re-evaluate", expanded=False):
+            render_manual_prompt_editor(
+                current_prompt=st.session_state.final_prompt,
+                rerun_label="Re-run with manual edits",
+                button_key="rerun_manual_prompt_edits",
+                question=question,
+                interaction_mode=interaction_mode,
+                question_intent=question_intent,
+                general_concept=general_concept,
+                specific_concept=specific_concept,
+                has_supporting_material=uploaded_file is not None,
+            )
 
     if st.session_state.verification_result is not None:
         with tabs[1]:
@@ -795,6 +1094,11 @@ if st.session_state.final_prompt:
                     st.info("Acceptable overall: usable, but there are a few areas you may want to tighten.")
                 else:
                     st.warning("Needs revision: the previewed behavior suggests this prompt should be tightened before use.")
+
+                if st.session_state.baseline_verification_result is not None and st.session_state.final_prompt_source in {"revised", "manual"}:
+                    baseline = st.session_state.baseline_verification_result
+                    if isinstance(baseline, dict) and baseline.get("success"):
+                        render_delta_summary(baseline.get("data", {}), parsed)
 
                 c1, c2, c3, c4 = st.columns(4)
                 with c1:
@@ -836,8 +1140,91 @@ if st.session_state.final_prompt:
                     for note in st.session_state.last_revision_notes:
                         st.caption(f"• {note}")
 
+                with st.expander("Customize suggested edits before applying", expanded=False):
+                    st.caption("Only the New text field is editable here. The original matched text must stay fixed or the exact-edit applier can fail.")
+                    custom_edits = []
+                    for i, edit in enumerate(recommended_edits):
+                        operation = str(edit.get("operation", "edit")).strip().lower()
+                        st.markdown(f"**Edit {i + 1} · {operation.title()}**")
+                        if operation == "rewrite":
+                            old_text = str(edit.get("old_text", ""))
+                            st.text_area(
+                                f"Old text {i + 1}",
+                                value=old_text,
+                                height=80,
+                                key=f"edit_old_text_{i}",
+                                disabled=True,
+                            )
+                            new_text = st.text_area(
+                                f"New text {i + 1}",
+                                value=str(edit.get("new_text", "")),
+                                height=100,
+                                key=f"edit_new_text_{i}",
+                            )
+                            custom_edits.append({"operation": "rewrite", "old_text": old_text.strip(), "new_text": new_text.strip(), "text": ""})
+                        elif operation == "remove":
+                            old_text = str(edit.get("old_text", ""))
+                            st.text_area(
+                                f"Text to remove {i + 1}",
+                                value=old_text,
+                                height=90,
+                                key=f"edit_remove_text_{i}",
+                                disabled=True,
+                            )
+                            custom_edits.append({"operation": "remove", "old_text": old_text.strip(), "new_text": "", "text": ""})
+                        else:
+                            add_text = st.text_area(
+                                f"New text to add {i + 1}",
+                                value=str(edit.get("text", "")),
+                                height=90,
+                                key=f"edit_add_text_{i}",
+                            )
+                            custom_edits.append({"operation": "add", "old_text": "", "new_text": "", "text": add_text.strip()})
+
+                    apply_custom_clicked = st.button(
+                        "Apply customized edits",
+                        key="apply_customized_edits",
+                        use_container_width=True,
+                        disabled=not recommended_edits,
+                    )
+
+                    if apply_custom_clicked:
+                        st.session_state.baseline_verification_result = st.session_state.verification_result
+                        with st.spinner("Applying customized edits and re-running verification..."):
+                            revision_result = revise_prompt_with_llm(
+                                generated_prompt=st.session_state.final_prompt,
+                                student_question=question.strip(),
+                                interaction_mode=interaction_mode,
+                                question_intent=question_intent,
+                                general_concept=general_concept,
+                                specific_concept=specific_concept,
+                                has_supporting_material=uploaded_file is not None,
+                                top_issues=top_issues,
+                                recommended_edits=custom_edits,
+                                fallback_revised_prompt_draft=parsed.get("revised_prompt_draft", ""),
+                            )
+
+                        if revision_result.get("success"):
+                            st.session_state.final_prompt = revision_result["revised_prompt"]
+                            st.session_state.final_prompt_source = "revised"
+                            st.session_state.last_revision_notes = revision_result.get("revision_notes", [])
+
+                            with st.spinner("Re-running verification..."):
+                                st.session_state.verification_result = rerun_verification_for_prompt(
+                                    prompt=st.session_state.final_prompt,
+                                    question=question,
+                                    interaction_mode=interaction_mode,
+                                    question_intent=question_intent,
+                                    general_concept=general_concept,
+                                    specific_concept=specific_concept,
+                                    has_supporting_material=uploaded_file is not None,
+                                )
+                            st.rerun()
+                        else:
+                            st.error(revision_result.get("error", "Could not build a revised prompt."))
+
                 auto_apply_clicked = st.button(
-                    "Auto-apply prompt edits",
+                    "Apply all suggested edits",
                     key="auto_apply_suggested_edits",
                     type="primary",
                     use_container_width=True,
@@ -845,6 +1232,7 @@ if st.session_state.final_prompt:
                 )
 
                 if auto_apply_clicked:
+                    st.session_state.baseline_verification_result = st.session_state.verification_result
                     with st.spinner("Applying suggested prompt edits and re-running verification..."):
                         revision_result = revise_prompt_with_llm(
                             generated_prompt=st.session_state.final_prompt,

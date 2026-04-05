@@ -69,14 +69,14 @@ INTERACTION_MODES = {
             "Do not wander into unrelated background or excessive detail.",
         ],
     },
-    "Student Simulator": {
+    "Simulated Novice Learner": {
         "short_description": "Clarifying Questions Only",
         "ui_explanation": (
-            "Acts as a novice learner, prompting the student to explain concepts and "
-            "reinforce understanding through teaching."
+            "Acts as a novice learner, prompting the student to act as an instructor/professor "
+            "and explain concepts and reinforce understanding through teaching."
         ),
         "instruction_description": (
-            "Act as a confused high school student first learning the topic. "
+            "Act as a incoming undergraduate freshman colleege student first learning the topic. "
             "Ask ONLY ONE clarifying question at a time and occasionally make a simple "
             "mistake to prompt the user to explain. Do NOT provide explanations."
         ),
@@ -214,10 +214,14 @@ def build_user_prompt(
             f"Ground your response strictly in the provided {supplemental_material_type} "
             f"(File: {supplemental_material_file_name}). If there is a conflict between "
             f"your internal training data and these materials, prioritize the uploaded "
-            f"content to ensure consistency with the student's specific curriculum."
+            f"content to ensure consistency with the student's specific curriculum. "
+            f"Treat uploaded materials as context for conceptual explanation only, not as "
+            f"a request to solve a specific homework problem."
         )
         supplemental_material_additional_rule = (
-            "Use the specific vocabulary and pedagogical style found in the uploaded materials."
+            "Use the specific vocabulary and pedagogical style found in the uploaded materials "
+            "while keeping the response focused on explaining the context and concept behind "
+            "the student's question rather than solving a specific homework problem."
         )
 
     mode_expectations = INTERACTION_MODES.get(interaction_mode, {}).get(
@@ -227,8 +231,9 @@ def build_user_prompt(
     intent_expectations = QUESTION_INTENT_EXPECTATIONS.get(question_intent, [])
 
     prompt_lines = [
-        "You are a Computer Science professor helping an undergraduate student with this question:",
+        "You are a Computer Science professor helping an undergraduate student.",
         "",
+        "Student's question",
         f'"{question}"',
         "",
         f"Intent: {question_intent}",
@@ -262,11 +267,14 @@ def build_user_prompt(
             "Rules",
             "",
             "- DO NOT provide direct answers to homework-style questions (for example, MCQs or graded work).",
+            "- If supporting materials are provided, treat them as context for conceptual explanation only, NOT as a request to solve a specific homework problem.",
+            "- Explain the context, reasoning, or concept behind the student's question rather than completing the student's work for them.",
+            "- Treat the quoted Student's question above as the exact question you should respond to.",
             "- DO NOT debug, modify, or rewrite code.",
             "- ALWAYS stay focused on the student's exact question AND selected intent.",
             "- Keep the response concise, scannable, and free of unrelated concepts.",
             "",
-            "For the rest of this conversation, you MUST continue following these rules, this role, and these setting expectations.",
+            "For the rest of this conversation, you MUST continue following this role, these rules, and this response style unless the student explicitly changes the request.",
         ]
     )
 
