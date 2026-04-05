@@ -471,7 +471,6 @@ def render_behavior_preview(sample_response: str, behavior_model_used: str) -> N
     st.markdown("<div class='pb-section-label'>Preview of first-turn behavior</div>", unsafe_allow_html=True)
 
     safe_model = html.escape(behavior_model_used or "unknown model")
-    safe_response = html.escape(sample_response.strip()) if sample_response else "No behavior preview available."
 
     st.markdown(
         f"""
@@ -480,12 +479,12 @@ def render_behavior_preview(sample_response: str, behavior_model_used: str) -> N
                 <div class='pb-behavior-title'>Sample opening response</div>
                 <div class='pb-model-badge'>Model: {safe_model}</div>
             </div>
-            <div class='pb-behavior-body'>{safe_response}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
+    
+    st.markdown(sample_response)
 
 def rerun_verification_for_prompt(
     prompt: str,
