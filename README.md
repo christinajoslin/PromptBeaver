@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/prompt_beaver_mascot.png" alt="PromptBeaver Mascot" width="220"/>
+  <img src="assets/prompt_beaver_mascot.png" alt="PromptBeaver Mascot" width="250"/>
 </p>
 
 <p align="center">
