@@ -908,13 +908,13 @@ with right_col:
         options=list(SUPPORTING_MATERIALS.keys()),
         index=None,
         placeholder="Choose a supporting material type...",
-        help="Upload materials (lecture slides, personal notes, or textbook excerpts) to prioritize course-specific terminology and examples in the prompt. Supporting materials should be used only for conceptual questions and context, not to provide a specific homework problem for the model to solve.",
+        help="Upload materials (lecture slides, personal notes, or textbook excerpts) to prioritize the context and relevancy of course-specific terminology and examples in the prompt.",
         key="supporting_material_type_select",
     )
 
     uploaded_file = st.file_uploader("Upload supporting file", type=["pdf", "txt", "md", "docx"])
     st.markdown(
-        "<div class='pb-alert-red'> Supporting materials are for conceptual context only, NOT for submitting a specific homework problem for an LLM to solve.</div>",
+        "<div class='pb-alert-red'> Supporting materials are to ensure the desired conceptual context and relevancy, NOT for submitting a specific homework problem for an LLM to solve.</div>",
         unsafe_allow_html=True,
     )
 
