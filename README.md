@@ -79,13 +79,13 @@ In both modes:
 
 ### Required Inputs
 
-| Input | Description | Example Options |
+| Input | Description | Options |
 |------|------------|----------------|
 | **Interaction Mode** | Determines how the LLM teaches and responds | Socratic Coach, Guided Tutor, Expert Explainer, Simulated Novice Learner |
 | **Question Intent** | Defines the goal of the explanation | Clarify a Concept, Walk Through an Example, Check My Reasoning |
-| **General Concept** | Broad subject area (based on course) | Data Structures & Algorithms |
-| **Specific Concept** | Targeted subtopic within the domain | Hash Tables, Graphs |
-| **User Question** | Conceptual question (≤150 words) | “Why is hash table lookup O(1) on average?” |
+| **General Concept** | Broad subject area (based on course) | e.g. Data Structures & Algorithms (CS 251/253) |
+| **Specific Concept** | Targeted subtopic within the domain | e.g. Hash Tables, Graphs |
+| **User Question** | Conceptual question (≤150 words) | e.g. “Why is hash table lookup O(1) on average?” |
 
 ---
 
@@ -93,7 +93,7 @@ In both modes:
 
 | Input | Description |
 |------|------------|
-| **Supporting Materials** | Lecture slides, notes, or external context to ground the response |
+| **Supporting Materials** | Lecture slides, personal notes, textbook excerpts to ensure the desired conceptual context and relevancy.|
 
 ---
 

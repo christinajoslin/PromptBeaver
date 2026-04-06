@@ -33,6 +33,7 @@ PAGE_TITLE = "PromptBeaver"
 PAGE_ICON = "🦫"
 LAYOUT = "wide"
 MAX_QUESTION_WORDS = 150
+MAX_PROMPT_WORDS = 500
 DOWNLOAD_FILENAME = "promptbeaver_prompt.txt"
 EXAMPLE_ANALYZE_PROMPT = "You are a helpful data structures tutor. Analyze my prompt using the student's question automatically included below. Explain the idea briefly and do NOT solve homework problems directly. Keep this instructional style for the rest of the conversation unless the student changes the request."
 
@@ -794,13 +795,21 @@ with left_col:
     if app_mode == "Analyze My Prompt":
         st.markdown("<div class='pb-title'>1) Prompt to analyze</div>", unsafe_allow_html=True)
         st.caption("Your question from section 3 will automatically be appended below this prompt in the generated version.")
+        
         prompt_input = st.text_area(
-            "Paste your existing prompt",
+            "(500 word limit)",
             height=260,
-            placeholder=EXAMPLE_ANALYZE_PROMPT,
+            placeholder= "Write your existing prompt here...",
             key="custom_prompt_input",
             help="Example prompt: You are a helpful data structures tutor. Analyze my prompt using the student's question automatically included below. Explain the idea briefly and do NOT solve homework problems directly. Keep this instructional style for the rest of the conversation unless the student changes the request.",
         )
+
+        prompt_word_count = len(prompt_input.split()) if prompt_input.strip() else 0
+        st.caption(f"Word count: {prompt_word_count}/{MAX_PROMPT_WORDS}")
+
+        if prompt_word_count > MAX_PROMPT_WORDS:
+            st.warning(f"Your prompt is over the {MAX_PROMPT_WORDS}-word limit.")
+
         st.caption(f"Example prompt: {EXAMPLE_ANALYZE_PROMPT}")
     else:
         st.markdown("<div class='pb-title'>1) Prompt setup</div>", unsafe_allow_html=True)
@@ -944,8 +953,13 @@ submit_clicked = st.button(button_label, use_container_width=True, type="primary
 if submit_clicked:
     errors = []
     if app_mode == "Analyze My Prompt":
-        if not st.session_state.custom_prompt_input.strip():
+        prompt_text = st.session_state.custom_prompt_input.strip()
+        prompt_word_count = len(prompt_text.split()) if prompt_text else 0
+
+        if not prompt_text:
             errors.append("Please paste a prompt to analyze.")
+        if prompt_word_count > MAX_PROMPT_WORDS:
+            errors.append(f"Your prompt must be {MAX_PROMPT_WORDS} words or fewer.")
         if interaction_mode is None:
             errors.append("Please select an interaction mode.")
         if general_concept is None:
