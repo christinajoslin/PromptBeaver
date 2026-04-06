@@ -211,12 +211,13 @@ PromptBeaver/
 
 ## 🤖 AI Disclosure
 
-AI tools were used **only** for:
+Gemini 3 and ChatGPT 5.3 were used **only** for:
 
 - Boilerplate code generation  
 - Debugging assistance  
 - UI refinement  
-- Initial documentation generation  
+- Initial documentation generation
+- Mascot image generation  
 
 Human-driven:
 
